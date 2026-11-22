@@ -358,7 +358,7 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.5}
 .copybox{
   margin-top:10px;border:1px solid var(--line);border-radius:12px;background:#fbfcfb;padding:10px 11px;
   font-size:11.5px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;word-break:break-all;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:132px;overflow:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:38vh;overflow:auto;
 }
 .sec-title{font-size:11.5px;font-weight:800;color:var(--muted);margin:14px 0 6px;letter-spacing:.02em}
 
@@ -2333,7 +2333,7 @@ function syncSelfHeal(u, pw, force){
   // 지난 발주 → 지금 품목에 맞춘 수량표 { itemId: {qty, unit} }
   function lastView(){
     var sid = G.storeId;
-    var view = { sid: sid, order: null, map: {}, matched: 0, skipped: 0, totalQty: 0 };
+    var view = { sid: sid, order: null, map: {}, list: [], matched: 0, skipped: 0, totalQty: 0 };
     var h = lastOrderFor(sid);
     if(!h) return view;
     view.order = h;
@@ -2344,6 +2344,7 @@ function syncSelfHeal(u, pw, force){
       if(!it || seen[it.id]){ view.skipped++; return; }
       seen[it.id] = 1;
       view.map[it.id] = { qty: l.qty, unit: normUnit(l.unit, it.unit) };
+      view.list.push({ id: it.id, qty: l.qty, unit: normUnit(l.unit, it.unit) });   // 발주서에 적혔던 차례
       view.matched++;
       view.totalQty += l.qty;
     });
@@ -2389,11 +2390,12 @@ function syncSelfHeal(u, pw, force){
     if(!v.order || !G.storeId) return;
     if(mode === 'replace') G.cart = {};
     var n = 0, total = 0;
-    for(var id in v.map){
-      if(!Object.prototype.hasOwnProperty.call(v.map, id)) continue;
-      G.cart[id] = { qty: v.map[id].qty, unit: v.map[id].unit };
-      n++; total += v.map[id].qty;
-    }
+    /* 지난 발주서에 적혔던 차례대로 담는다. '합치기'면 이미 담긴 품목은 그자리를 지키고 새 품목만 뒤에 붙는다. */
+    v.list.forEach(function(row){
+      var prev = G.cart[row.id];
+      G.cart[row.id] = { qty: row.qty, unit: row.unit, seq: (prev && prev.seq > 0) ? prev.seq : nextSeq() };
+      n++; total += row.qty;
+    });
     resetCart(G.cart);
     G.onlyOrdered = false;
     G.limit = Math.max(PAGE, cartCount());
@@ -2484,6 +2486,40 @@ function syncSelfHeal(u, pw, force){
   function saveHistory(){ LS.set(KEY.history, G.history); }
   function saveSettings(){ LS.set(KEY.settings, G.settings); }
 
+  /* ---------------- 담은 순서(스캔 순서) ---------------- */
+  /* 장바구니 한 줄(cart[itemId])과 사진 품목에 seq 를 붙여, 담은(찍은) 차례대로 보여 주고 보낸다.
+     같은 품목을 다시 찍으면 처음 찍은 자리를 그대로 지킨다. */
+  var SEQ = { n: 0 };      // 이번 실행에서 마지막으로 쓴 순번
+  function seqMaxInUse(){
+    var m = SEQ.n;
+    for(var id in G.cart){
+      if(!Object.prototype.hasOwnProperty.call(G.cart, id)) continue;
+      var c = G.cart[id];
+      if(c && c.seq > m) m = c.seq;
+    }
+    for(var i=0;i<G.photos.length;i++){
+      if(G.photos[i] && G.photos[i].seq > m) m = G.photos[i].seq;
+    }
+    return m;
+  }
+  function nextSeq(){
+    SEQ.n = seqMaxInUse() + 1;
+    return SEQ.n;
+  }
+  function seqOf(entry){ return (entry && entry.seq > 0) ? entry.seq : 0; }
+  /* 순번이 없는 항목(이 판 이전에 담긴 것·옛 저장본)은 담길 때 순번을 붙여 준다 */
+  function ensureSeq(entry){
+    if(!entry) return 0;
+    if(!(entry.seq > 0)) entry.seq = nextSeq();
+    return entry.seq;
+  }
+  /* 목록 순서대로 1..n 으로 다시 매긴다 (저장한 발주서를 다시 담을 때) */
+  function byScanOrder(a, b){
+    var sa = seqOf(a), sb = seqOf(b);
+    if(sa !== sb) return sa - sb;
+    return (a.ord || 0) - (b.ord || 0);
+  }
+
   /* ---------------- cart maths ---------------- */
   function catalogLines(){
     var out = [];
@@ -2493,10 +2529,12 @@ function syncSelfHeal(u, pw, force){
         out.push({
           key: it.id, itemId: it.id, photo:false,
           name: it.name, spec: it.spec || '', barcode: it.barcode || '',
-          qty: c.qty, unit: c.unit || it.unit
+          qty: c.qty, unit: c.unit || it.unit,
+          seq: ensureSeq(c), ord: i
         });
       }
     }
+    out.sort(byScanOrder);
     return out;
   }
   function photoLines(){
@@ -2506,14 +2544,19 @@ function syncSelfHeal(u, pw, force){
       if(p.qty > 0){
         out.push({
           key: p.id, photoId: p.id, photo:true,
-          name: (p.name || '').trim() || '사진 품목', spec: p.spec || '', barcode:'',
-          qty: p.qty, unit: p.unit || '봉', dataUrl: p.dataUrl || ''
+          name: (p.name || '').trim() || '사진 품목', spec: p.spec || '', barcode: p.barcode || '',
+          qty: p.qty, unit: p.unit || '봉', dataUrl: p.dataUrl || '',
+          seq: ensureSeq(p), ord: i
         });
       }
     }
     return out;
   }
-  function allLines(){ return catalogLines().concat(photoLines()); }
+  function allLines(){
+    var lines = catalogLines().concat(photoLines());
+    lines.sort(byScanOrder);
+    return lines;
+  }
   function totals(){
     var lines = allLines(), q = 0;
     for(var i=0;i<lines.length;i++) q += lines[i].qty;
@@ -2577,17 +2620,17 @@ function syncSelfHeal(u, pw, force){
     if(bar) bar.hidden = !G.onlyOrdered;
   }
   function orderedItems(){
-    var out = [], seen = {};
+    var picked = [];
     for(var id in G.cart){
       if(!Object.prototype.hasOwnProperty.call(G.cart, id)) continue;
       var c = G.cart[id];
-      if(!c || !(c.qty > 0) || seen[id]) continue;
+      if(!c || !(c.qty > 0)) continue;
       var it = itemById(id);
       if(!it) continue;
-      seen[id] = 1;
-      out.push(it);
+      picked.push({ it: it, seq: ensureSeq(c), ord: picked.length });
     }
-    return out;
+    picked.sort(byScanOrder);
+    return picked.map(function(p){ return p.it; });
   }
   function filteredItems(){
     var q = G.search.trim().toLowerCase();
@@ -2667,7 +2710,14 @@ function syncSelfHeal(u, pw, force){
     var it = itemById(id);
     if(!it) return;
     if(qty === 0){ delete G.cart[id]; }
-    else { G.cart[id] = { qty: qty, unit: (G.cart[id] && G.cart[id].unit) || it.unit }; }
+    else {
+      var prevE = G.cart[id];
+      G.cart[id] = {
+        qty: qty,
+        unit: (prevE && prevE.unit) || it.unit,
+        seq: (prevE && prevE.seq > 0) ? prevE.seq : nextSeq()   // 담은 자리 그대로
+      };
+    }
     var card = $('.item[data-id="' + id + '"]');
     if(card){
       card.classList.toggle('on', qty > 0);
@@ -2743,6 +2793,23 @@ function syncSelfHeal(u, pw, force){
   }
 
   /* ---------------- summary ---------------- */
+  /* 바코드는 보기 쉽게 7자리 · 2자리 · 4자리로 끊는다 (예: 8809522 52 0100).
+     13자리가 아닌 바코드는 적힌 그대로 둔다. */
+  function fmtBarcode(bc){
+    var raw = String(bc == null ? '' : bc).trim();
+    if(!raw) return '';
+    var d = raw.replace(/\s+/g, '');
+    if(/^\d{13}$/.test(d)) return d.slice(0,7) + ' ' + d.slice(7,9) + ' ' + d.slice(9,13);
+    return raw;
+  }
+  /* 품목 (용량)_7자리 2자리 4자리 — 이름에 이미 규격이 들어 있으면 괄호를 겹치지 않는다 */
+  function lineLabel(l){
+    var nm = String(l.name || '').trim();
+    var sp = String(l.spec || '').trim();
+    if(sp && nm.indexOf(sp) === -1) nm += ' (' + sp + ')';
+    var bc = fmtBarcode(l.barcode);
+    return nm + (bc ? '_' + bc : '') + (l.photo ? ' [사진]' : '');
+  }
   function buildOrderText(){
     var t = totals();
     var name = storeName() || '(거래처 미선택)';
@@ -2753,8 +2820,7 @@ function syncSelfHeal(u, pw, force){
     if(CUR) out.push('· 담당자: ' + (CUR.name || CUR.id) + '(' + CUR.id + ')');
     out.push('');
     t.lines.forEach(function(l, i){
-      var spec = l.spec ? ' (' + l.spec + ')' : '';
-      out.push((i+1) + '. ' + l.name + spec + (l.photo ? ' [사진]' : '') + ' — ' + l.qty + l.unit);
+      out.push((i+1) + '. ' + lineLabel(l) + ' — ' + l.qty + l.unit);
     });
     out.push('');
     out.push('합계 ' + t.types + '종 · 수량 ' + t.qty);
@@ -2768,7 +2834,7 @@ function syncSelfHeal(u, pw, force){
     var rows = t.lines.map(function(l){
       var sub = [];
       if(l.spec) sub.push(l.spec);
-      if(l.barcode) sub.push(l.barcode);
+      if(l.barcode) sub.push(fmtBarcode(l.barcode));
       if(l.photo) sub.push('사진');
       var td;
       if(l.itemId){
@@ -2982,16 +3048,19 @@ function syncSelfHeal(u, pw, force){
     resetCart({});
     renderStoreSelect();
     G.photos = [];
+    var seqN = 0;      // 저장한 발주서에 있던 차례를 그대로 다시 매긴다
     h.lines.forEach(function(l){
       var hit = (l.itemId && itemById(l.itemId)) || null;
       if(!hit && l.barcode) hit = findByBarcode(l.barcode);
       if(!hit && l.name) hit = findByNameSpec(l.name, l.spec);
+      seqN++;
       if(hit){
-        G.cart[hit.id] = { qty: l.qty, unit: l.unit };
+        G.cart[hit.id] = { qty: l.qty, unit: l.unit, seq: seqN };
       } else {
-        G.photos.push({ id: uid('ph'), dataUrl:'', name: l.name, spec: l.spec || '', qty: l.qty, unit: l.unit });
+        G.photos.push({ id: uid('ph'), dataUrl:'', name: l.name, spec: l.spec || '', qty: l.qty, unit: l.unit, seq: seqN });
       }
     });
+    if(seqN > SEQ.n) SEQ.n = seqN;
     resetCart(G.cart);
     G.date = todayISO();
     $('#date-input').value = G.date;
@@ -3326,12 +3395,21 @@ function syncSelfHeal(u, pw, force){
       return f && /^image\//.test(f.type || '');
     });
     if(!arr.length){ toast('사진 파일이 아닙니다', true); return; }
+    /* 찍은(고른) 순서대로 자리를 먼저 잡아 두고 사진만 채운다 — 여러 장을 한 번에 담아도 순서가 엉키지 않는다 */
+    var slots = arr.map(function(){
+      var p = { id: uid('ph'), dataUrl: '', name: '', spec: '', qty: 1, unit: '봉', seq: nextSeq() };
+      G.photos.push(p);
+      return p;
+    });
     var done = 0;
-    arr.forEach(function(f){
+    arr.forEach(function(f, idx){
+      var slot = slots[idx];
       compress(f, 1000).then(function(dataUrl){
-        G.photos.push({ id: uid('ph'), dataUrl: dataUrl, name: '', spec: '', qty: 1, unit: '봉' });
+        slot.dataUrl = dataUrl;
       }, function(){
         toast('사진을 읽지 못했습니다: ' + (f.name || ''), true);
+        var at = G.photos.indexOf(slot);
+        if(at >= 0) G.photos.splice(at, 1);
       }).then(function(){
         done++;
         if(done === arr.length){ renderPhotos(); toast(arr.length + '장을 담았습니다'); }
@@ -3800,7 +3878,7 @@ function syncSelfHeal(u, pw, force){
     var prev = G.cart[it.id];
     var qty = ((prev && prev.qty) ? prev.qty : 0) + 1;
     var unit = (prev && prev.unit) || it.unit || '봉';
-    G.cart[it.id] = { qty: qty, unit: unit };
+    G.cart[it.id] = { qty: qty, unit: unit, seq: (prev && prev.seq > 0) ? prev.seq : nextSeq() };
     bcMarkAdded(it.id);
     bcRenderAdded();
     if(G.onlyOrdered) renderCatalog();
@@ -4030,7 +4108,7 @@ function syncSelfHeal(u, pw, force){
     saveItems();
     var prev = G.cart[copy.id];
     var qty = ((prev && prev.qty) ? prev.qty : 0) + 1;
-    G.cart[copy.id] = { qty: qty, unit: (prev && prev.unit) || copy.unit };
+    G.cart[copy.id] = { qty: qty, unit: (prev && prev.unit) || copy.unit, seq: (prev && prev.seq > 0) ? prev.seq : nextSeq() };
     bcMarkAdded(copy.id);
     bcRenderAdded();
     renderCatalog(); renderItemRows(); renderBar();
@@ -4634,7 +4712,7 @@ function syncSelfHeal(u, pw, force){
       var u = e.target.closest('[data-unit]');
       if(u){
         var id3 = u.getAttribute('data-unit');
-        if(!G.cart[id3]) G.cart[id3] = { qty: 1, unit: u.value };
+        if(!G.cart[id3]) G.cart[id3] = { qty: 1, unit: u.value, seq: nextSeq() };
         else G.cart[id3].unit = u.value;
         setQty(id3, G.cart[id3].qty);
         bcRenderAdded();
