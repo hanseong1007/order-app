@@ -1063,6 +1063,19 @@ body.locked .authgate{display:block}
       <p class="note" id="pw-msg">바꾼 비밀번호는 이 기기에만 저장됩니다. 다른 직원 휴대폰은 그 직원이 직접 바꿔야 합니다.</p>
       <div class="saverow"><button class="btn soft" id="btn-pw-change" type="button">내 비밀번호 바꾸기</button></div>
       <div class="divider"></div>
+      <div class="blockhead"><h3>기기 간 동기화</h3></div>
+      <p class="note" id="odsync-note">같은 아이디로 들어간 다른 기기(PC·휴대폰)와 발주 작업이 자동으로 맞춰집니다.</p>
+      <div id="odsync-lockrow" style="display:none">
+        <div class="field">
+          <label class="lbl" for="odsync-pw">비밀번호 (한 번만)</label>
+          <input class="inp2" id="odsync-pw" type="password" autocomplete="current-password" placeholder="지금 쓰는 비밀번호">
+        </div>
+        <div class="saverow"><button class="btn soft" id="btn-odsync-unlock" type="button">동기화 켜기</button></div>
+      </div>
+      <div class="saverow" id="odsync-nowrow">
+        <button class="btn ghost2" id="btn-odsync-now" type="button">지금 주고받기</button>
+      </div>
+      <div class="divider"></div>
       <div class="blockhead"><h3>계정</h3></div>
       <div class="saverow">
         <button class="btn soft" id="btn-users-open" type="button" style="display:none">👥 사용자 관리 (관리자)</button>
@@ -4601,6 +4614,24 @@ function syncSelfHeal(u, pw, force){
     $('#btn-account').addEventListener('click', openAccount);
     $('#btn-acc-open').addEventListener('click', function(){ closeSheet('modal-settings'); openAccount(); });
     $('#btn-logout').addEventListener('click', logout);
+    var ub = $('#btn-odsync-unlock');
+    if(ub) ub.addEventListener('click', function(){
+      var pw = $('#odsync-pw').value;
+      if(!pw){ toast('비밀번호를 넣어 주세요', true); return; }
+      if(!window.ODSync){ toast('동기화를 쓸 수 없는 환경입니다', true); return; }
+      toast('동기화 여는 중…');
+      ODSync.unlock(pw).then(function(ok){
+        if(!ok){ toast('비밀번호가 맞지 않거나 열쇠를 받지 못했습니다', true); return; }
+        $('#odsync-pw').value = '';
+        return ODSync.start().then(function(){ toast('기기 간 동기화를 켰습니다'); });
+      });
+    });
+    var nb = $('#btn-odsync-now');
+    if(nb) nb.addEventListener('click', function(){
+      if(!window.ODSync || !CUR) return;
+      ODSync.touch();
+      ODSync.pull().then(function(){ return ODSync.push(); }).then(function(){ toast('동기화 · ' + ODSync.text()); });
+    });
     var ob = $('#btn-odsync');
     if(ob) ob.addEventListener('click', function(){
       if(!window.ODSync || !CUR) return;
@@ -5123,6 +5154,14 @@ function syncSelfHeal(u, pw, force){
     if(ic) ic.textContent = v[0];
     if(lb) lb.textContent = v[1];
     b.title = k === 'error' ? (msg || '동기화 오류') : ('기기 간 동기화 · ' + v[1]);
+    var note = $('#odsync-note'), lock = $('#odsync-lockrow'), now = $('#odsync-nowrow');
+    if(note){
+      note.textContent = k === 'locked'
+        ? '이 기기에는 동기화 열쇠가 없습니다. 비밀번호를 한 번 넣어 켜 주세요.'
+        : (k === 'error' ? ('동기화 오류 · ' + (msg || '') ) : ('같은 아이디로 들어간 다른 기기와 자동으로 맞춰집니다 · ' + v[1]));
+    }
+    if(lock) lock.style.display = (k === 'locked') ? '' : 'none';
+    if(now) now.style.display = (k === 'locked' || k === 'off') ? 'none' : '';
   }
 
   function odCollect(){
