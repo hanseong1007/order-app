@@ -643,9 +643,18 @@ body.locked .authgate{display:block}
   .miniscan .txt{display:none}
   .scanfield .inp2{font-size:12px;padding-left:9px;padding-right:6px}
 }
+/* 동기화 상태 칩 */
+.syncchip{position:relative;font-weight:700;font-size:11px;letter-spacing:-.2px;gap:4px;padding:0 8px;min-width:34px;color:#0f766e;background:#ecfdf5;border:1px solid #99f6e4;border-radius:999px;height:30px}
+.syncchip.off{display:none}
+.syncchip .lb{display:none}
+@media (min-width:430px){ .syncchip .lb{display:inline} }
+.syncchip.saving{color:#92400e;background:#fffbeb;border-color:#fde68a}
+.syncchip.err{color:#b91c1c;background:#fef2f2;border-color:#fecaca}
+.syncchip.lock{color:#4b5563;background:#f3f4f6;border-color:#d1d5db}
 </style>
 </head>
 <body class="locked">
+<script src="sync-order.js?v=1"></script>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
@@ -709,6 +718,7 @@ body.locked .authgate{display:block}
       <span>거래처 발주</span>
     </div>
     <div class="grow"></div>
+    <button class="iconbtn syncchip off" id="btn-odsync" type="button" aria-label="기기 간 동기화 상태" title="기기 간 동기화"><span id="odsync-ic">☁️</span><span class="lb" id="odsync-lb">동기화</span></button>
     <button class="accountchip" id="btn-account" type="button" aria-label="내 계정 · 계정 관리">
       <span class="av" id="acc-av">관</span><span class="nm" id="acc-name">로그인</span>
     </button>
@@ -1272,6 +1282,7 @@ body.locked .authgate{display:block}
     itemsByStore:'kd.items.v3',     // { storeId: [items] }  (v3 = 정리된 전체 품목)
     itemsByStoreV2:'kd.items.v2',   // 예전 목록(마이그레이션용으로 한 번 읽음)
     history:'kd.history.v1',
+    carts:'kd.carts.v1',            // { storeId: { itemId: {qty, unit, seq} } } — 닫았다 열어도 담은 것 유지
     settings:'kd.settings.v1',
     store:'kd.store.v1',
     date:'kd.date.v1'
@@ -1535,6 +1546,7 @@ body.locked .authgate{display:block}
     KEY.itemsByStore = p + 'items.v3';
     KEY.itemsByStoreV2 = p + 'items.v2';
     KEY.history = p + 'history.v1';
+    KEY.carts = p + 'carts.v1';
     KEY.settings = p + 'settings.v1';
     KEY.store = p + 'store.v1';
     KEY.date = p + 'date.v1';
@@ -1575,6 +1587,7 @@ body.locked .authgate{display:block}
     return { ok:true, user:u, locked:!k };
   }
   function logout(){
+    try{ if(window.ODSync) ODSync.stop(); }catch(e){}
     clearSession();
     clearPortalSSO();
     CUR = null;
@@ -2125,6 +2138,10 @@ function syncSelfHeal(u, pw, force){
         if(k && k.indexOf(p) === 0) kill.push(k);
       }
       kill.forEach(function(k){ try{ window.localStorage.removeItem(k); delete mem[k]; }catch(e){} });
+      /* 동기화 열쇠·감싸개도 함께 지운다 */
+      ['kd.odsync.key.' + nid, 'kd.odsync.wrap.' + nid].forEach(function(k){
+        try{ window.localStorage.removeItem(k); delete mem[k]; }catch(e){}
+      });
     }catch(e){}
     return { ok:true, msg:(hit.name || nid) + ' 계정을 삭제했습니다' };
   }
@@ -2148,6 +2165,7 @@ function syncSelfHeal(u, pw, force){
     syncSetCredsById(CUR.id, newPw);
     CUR = findUser(CUR.id);
     pushUsersToSheet({ id:CUR.id });                 // 내 비밀번호는 시트에도 바로 반영한다
+    try{ if(window.ODSync) ODSync.rewrap(curPw, newPw); }catch(e){}   // 동기화 열쇠 감싸개도 새 비밀번호로
     return { ok:true, msg:'비밀번호를 바꿨습니다' };
   }
 
@@ -2469,6 +2487,9 @@ function syncSelfHeal(u, pw, force){
       if(hitSid && dupSid === 1){ he.storeId = hitSid; hFix = true; }
     }
     if(hFix) saveHistory();
+    G.carts = LS.get(KEY.carts, {});
+    if(!G.carts || typeof G.carts !== 'object' || Object.prototype.toString.call(G.carts) === '[object Array]') G.carts = {};
+
     var s = LS.get(KEY.settings, {});
     G.settings = { geminiKey: (s && s.geminiKey) ? String(s.geminiKey) : '' };
 
@@ -2477,6 +2498,7 @@ function syncSelfHeal(u, pw, force){
     for(var j=0;j<G.stores.length;j++){ if('id:' + G.stores[j].id === 'id:' + String(sid2)){ G.storeId = G.stores[j].id; break; } }
     if(!G.storeId && G.stores.length) G.storeId = G.stores[0].id;
     syncItems();
+    G.cart = (G.storeId && G.carts[G.storeId]) ? G.carts[G.storeId] : {};
 
     var d = LS.getRaw(KEY.date, '');
     G.date = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayISO();
@@ -2484,6 +2506,7 @@ function syncSelfHeal(u, pw, force){
   function saveStores(){ LS.set(KEY.stores, G.stores); }
   function saveItems(){ LS.set(KEY.itemsByStore, G.itemsMap); }
   function saveHistory(){ LS.set(KEY.history, G.history); }
+  function saveCarts(){ LS.set(KEY.carts, G.carts); }
   function saveSettings(){ LS.set(KEY.settings, G.settings); }
 
   /* ---------------- 담은 순서(스캔 순서) ---------------- */
@@ -2750,6 +2773,7 @@ function syncSelfHeal(u, pw, force){
     $('#btn-summary').disabled = (t.types === 0);
     $('#hist-dot').classList.toggle('on', G.history.length > 0);
     updateOnlyUI();
+    odKick();                       // 담은 것·수량 변화를 이 기기에 저장하고 동기화에 알린다
   }
 
   /* ---------------- render: photos ---------------- */
@@ -4513,7 +4537,7 @@ function syncSelfHeal(u, pw, force){
       toast('복사가 안 되면 아래 초대 링크를 길게 눌러 복사하세요', true);
     });
   }
-  function startApp(u){
+  function startApp(u, pw){
     CUR = u;
     setScope(u.id);
     if(!CAT.ok) unlockForUser(u, '');     // 이 기기에 감춰 둔 열쇠(관리자·초대받은 직원)로 목록을 연다
@@ -4532,6 +4556,7 @@ function syncSelfHeal(u, pw, force){
     $('#login-pw').value = '';
     document.body.classList.remove('locked');
     syncSessionAccount();        /* 로그인된 세션이어도 시트 계정 이름·권한을 조용히 한 번 확인한다 */
+    odPrepare(u, pw);            /* 이 기기 ↔ 다른 기기 발주 작업 동기화 */
   }
   function showGate(msg){
     document.body.classList.add('locked');
@@ -4556,7 +4581,7 @@ function syncSelfHeal(u, pw, force){
           msg.className = 'authmsg'; msg.textContent = r.msg; $('#login-pw').value = ''; $('#login-pw').focus(); return;
         }
         msg.className = 'authmsg ok'; msg.textContent = '';
-        startApp(r.user);
+        startApp(r.user, pw);
         if(r.user.id === 'admin') syncSelfHeal(r.user, pw).then(function(){ return syncUsersFromSheet({ seed:true }); });
         else syncSelfHeal(r.user, pw);
         if(r.locked) toast('품목 목록이 잠겨 있습니다. 관리자에게 새 초대 링크를 받아 주세요', true);
@@ -4571,6 +4596,15 @@ function syncSelfHeal(u, pw, force){
     $('#btn-account').addEventListener('click', openAccount);
     $('#btn-acc-open').addEventListener('click', function(){ closeSheet('modal-settings'); openAccount(); });
     $('#btn-logout').addEventListener('click', logout);
+    var ob = $('#btn-odsync');
+    if(ob) ob.addEventListener('click', function(){
+      if(!window.ODSync || !CUR) return;
+      var st = ODSync.state();
+      if(st.state === 'locked'){ toast('동기화 열쇠가 없습니다 · 비밀번호로 한 번 로그인해 주세요', true); return; }
+      toast('동기화 · ' + ODSync.text());
+      try{ ODSync.touch(); }catch(e){}
+      ODSync.pull().then(function(){ return ODSync.push(); }).then(function(){ toast('동기화 · ' + ODSync.text()); });
+    });
     $('#btn-users-open').addEventListener('click', function(){ closeSheet('modal-account'); openSheet('modal-users'); });
     $('#btn-portal').addEventListener('click', function(){ location.href = portalHome(); });
     $('#btn-pw-change').addEventListener('click', function(){
@@ -5048,6 +5082,105 @@ function syncSelfHeal(u, pw, force){
     return null;
   }
 
+  /* ============================================================
+     기기 간 동기화 (sync-order.js)
+       발주 작업 자료를 이 기기에서 바꾼 만큼만 암호문으로 시트에 올리고,
+       다른 기기에서 바꾼 것은 열 때마다 받아 기록 단위로 합친다.
+     ============================================================ */
+  var OD_SYNC_URL = 'https://script.google.com/macros/s/AKfycbwP6tZPEWS95HsO781CdgUwRUtuzNj0DbRUDuZIKPMuenX4D4rHbsgbB3hJts0X26isaw/exec';
+  var OD_TICK = { t:0 };
+
+  function odKick(){
+    if(!CUR || !window.ODSync) return;
+    try{
+      if(G.storeId) G.carts[G.storeId] = G.cart;
+      saveCarts();
+    }catch(e){}
+    var now = Date.now();
+    if(now - OD_TICK.t < 400) return;          // 화면을 여러 번 그려도 동기화 확인은 0.4초에 한 번
+    OD_TICK.t = now;
+    try{ ODSync.touch(); }catch(e){}
+  }
+
+  function odStatus(k, msg){
+    var b = $('#btn-odsync'), ic = $('#odsync-ic'), lb = $('#odsync-lb');
+    if(!b) return;
+    var MAP = {
+      off:    ['\u2601\ufe0f', '동기화'],
+      locked: ['\ud83d\udd12', '열쇠 필요'],
+      sync:   ['\ud83d\udd04', '확인 중'],
+      saving: ['\u23f3', '저장 중'],
+      error:  ['\u26a0\ufe0f', '동기화 오류'],
+      ok:     ['\u2601\ufe0f', '동기화됨']
+    };
+    var v = MAP[k] || MAP.ok;
+    b.className = 'iconbtn syncchip' + (k === 'off' ? ' off' : k === 'saving' ? ' saving' : k === 'error' ? ' err' : k === 'locked' ? ' lock' : '');
+    if(ic) ic.textContent = v[0];
+    if(lb) lb.textContent = v[1];
+    b.title = k === 'error' ? (msg || '동기화 오류') : ('기기 간 동기화 · ' + v[1]);
+  }
+
+  function odCollect(){
+    return { stores: G.stores, items: G.itemsMap, history: G.history, carts: G.carts, date: G.date };
+  }
+
+  function odApply(sec, val){
+    if(sec === 'stores'){
+      if(!Array.isArray(val)) return;
+      if(val.length) G.stores = val;
+      for(var i=0;i<G.stores.length;i++){ if(!Array.isArray(G.itemsMap[G.stores[i].id])) G.itemsMap[G.stores[i].id] = []; }
+      var ok = false;
+      for(var j=0;j<G.stores.length;j++){ if(G.stores[j].id === G.storeId) ok = true; }
+      if(!ok){
+        G.storeId = G.stores.length ? G.stores[0].id : null;
+        LS.setRaw(KEY.store, G.storeId || '');
+      }
+      saveStores(); syncItems();
+      if(G.storeId){ G.cart = G.carts[G.storeId] || G.cart; }
+    } else if(sec === 'items'){
+      if(val && typeof val === 'object'){ G.itemsMap = val; saveItems(); syncItems(); }
+    } else if(sec === 'history'){
+      if(Array.isArray(val)){ G.history = val; saveHistory(); }
+    } else if(sec === 'carts'){
+      if(val && typeof val === 'object'){
+        G.carts = val;
+        G.cart = (G.storeId && G.carts[G.storeId]) ? G.carts[G.storeId] : {};
+        if(G.storeId) G.carts[G.storeId] = G.cart;
+        saveCarts();
+      }
+    } else if(sec === 'date'){
+      if(typeof val === 'string' && val){
+        G.date = val; LS.setRaw(KEY.date, val);
+        var el = $('#date-input'); if(el) el.value = val;
+      }
+    }
+  }
+
+  function odRepaint(n){
+    try{
+      renderStoreSelect(); syncItems(); renderPills(); renderCatalog(); renderPhotos();
+      renderItemRows(); renderHistory(); renderLastRow(); renderBar();
+    }catch(e){}
+    if(n > 0) toast('다른 기기에서 바뀐 내용 ' + n + '건을 반영했습니다');
+  }
+
+  function odPrepare(u, pw){
+    if(!window.ODSync || !u){ return; }
+    try{
+      ODSync.init({
+        url: OD_SYNC_URL, uid: u.id,
+        adapter: { collect: odCollect, apply: odApply },
+        onStatus: odStatus, onChange: odRepaint
+      });
+    }catch(e){ return; }
+    var go = (pw && String(pw).length) ? ODSync.unlock(pw) : ODSync.unlockPortal();
+    go.then(function(ok){
+      if(ok) return ODSync.start();
+      odStatus('locked');
+      return false;
+    }).catch(function(){ odStatus('locked'); });
+  }
+
   /* ---------------- init ---------------- */
   window.__orderSync = {
     sync: function(){ return { state:SHEET_SYNC.state, at:SHEET_SYNC.at, error:SHEET_SYNC.error, dirty:LS.get(SYNC_DIRTY_KEY, false) === true }; },
@@ -5057,6 +5190,10 @@ function syncSelfHeal(u, pw, force){
     catOpen: function(){ return CAT.ok; },
     catKey: function(){ return CAT.ok ? CAT.key : ''; },
     itemCount: function(){ return DEFAULT_ITEMS.length; },
+    odsync: function(){ return window.ODSync ? ODSync.state() : null; },
+    odtext: function(){ return window.ODSync ? ODSync.text() : ''; },
+    odpull: function(){ return window.ODSync ? ODSync.pull() : null; },
+    odpush: function(){ return window.ODSync ? ODSync.push() : null; },
     creds: function(id){ var u = findUser(id); return u ? { salt:u.salt, hash:u.hash, sheetSalt:u.sheetSalt || '', hashes:u.sheetHashes || null } : null; }
   };
 
