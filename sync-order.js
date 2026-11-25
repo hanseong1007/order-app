@@ -47,7 +47,8 @@
     return { v: 1, revW: 0, revC: 0,
       st: { stores: {}, hist: {}, cart: {}, items: {}, date: 0 },
       del: { stores: {}, hist: {}, cart: {}, items: {} },
-      base: { stores: {}, hist: {}, cart: {}, items: {}, date: '' } };
+      base: { stores: {}, hist: {}, cart: {}, items: {}, date: '' },
+      alias: {} };
   }
   function loadMeta() {
     var m = lsGet(metaKey(), null);
@@ -60,6 +61,7 @@
     });
     if (typeof m.revW !== 'number') m.revW = 0;
     if (typeof m.revC !== 'number') m.revC = 0;
+    if (!m.alias || typeof m.alias !== 'object') m.alias = {};
     return m;
   }
   function saveMeta() { lsSet(metaKey(), META); }
@@ -263,6 +265,25 @@
     };
   }
   function fp(o) { try { return JSON.stringify(o); } catch (e) { return ''; } }
+  /* 기기마다 기본 품목 id 가 달라도 같은 품목을 하나로 보기 위한 이름표 */
+  function prodKey(it) { return [it.name || '', it.spec || '', it.barcode || ''].join('|'); }
+
+  /* 다른 기기 품목 id 로 들어온 장바구니 줄을 이 기기 id 로 잇는다 */
+  function aliasCarts(carts) {
+    var changed = 0, out = {};
+    Object.keys(carts || {}).forEach(function (sid) {
+      var c = carts[sid] || {}, n = {};
+      Object.keys(c).forEach(function (iid) {
+        var to = META.alias[iid];
+        if (!to || to === iid) { n[iid] = c[iid]; return; }
+        var t = n[to], v = c[iid];
+        if (!t || (v && (v.qty || 0) > (t.qty || 0))) n[to] = v;
+        changed++;
+      });
+      out[sid] = n;
+    });
+    return { carts: out, changed: changed };
+  }
   function fpStores(cur) { var m = {}; cur.stores.forEach(function (s) { if (s && s.id) m[s.id] = fp(s); }); return m; }
   function fpHist(cur) { var m = {}; cur.history.forEach(function (h) { if (h && h.id) m[h.id] = fp(h); }); return m; }
   function fpItems(cur) {
@@ -490,6 +511,9 @@
       oCarts[sid] = o;
     });
 
+    var aliased = aliasCarts(oCarts);
+    if (aliased.changed) { oCarts = aliased.carts; changed += aliased.changed; }
+
     var dateOut = cur.date;
     var rdt = num(doc.st.date), ldt = num(META.st.date);
     if (rdt > ldt) { dateOut = String(doc.date || ''); META.st.date = rdt; changed++; }
@@ -514,6 +538,38 @@
     if (!doc || !doc.st) return 0;
     var cur = collect();
     var changed = 0, out = {}, sids = {};
+
+    /* 같은 품목(이름·규격·바코드)인데 기기마다 id 가 다르면: 이 기기 id 를 남기고 저쪽 id 를 별칭으로 기억한다 */
+    var localByKey = {}, localIds = {}, sid, arr, it, k;
+    for (sid in cur.items) {
+      localByKey[sid] = {}; localIds[sid] = {};
+      arr = cur.items[sid] || [];
+      for (var q = 0; q < arr.length; q++) {
+        it = arr[q];
+        if (!it || !it.id) continue;
+        localIds[sid][it.id] = 1;
+        localByKey[sid][prodKey(it)] = it.id;
+      }
+    }
+    var pruned = {};
+    for (sid in (doc.items || {})) {
+      arr = doc.items[sid] || [];
+      var keep = [];
+      for (var r = 0; r < arr.length; r++) {
+        it = arr[r];
+        if (!it || !it.id) continue;
+        k = prodKey(it);
+        var lid = localByKey[sid] ? localByKey[sid][k] : null;
+        if (lid && lid !== it.id && !(localIds[sid] && localIds[sid][it.id])) {
+          if (!META.alias[it.id]) { META.alias[it.id] = lid; }
+          continue;                        /* 이미 이 기기에 같은 품목이 있다 */
+        }
+        keep.push(it);
+      }
+      pruned[sid] = keep;
+    }
+    doc = { v: doc.v, at: doc.at, dev: doc.dev, n: doc.n, items: pruned, st: doc.st, del: doc.del };
+
     Object.keys(cur.items).forEach(function (s) { sids[s] = 1; });
     Object.keys(doc.items || {}).forEach(function (s) { sids[s] = 1; });
     Object.keys(sids).forEach(function (sid) {
@@ -528,9 +584,17 @@
       ST.suspend = true;
       try { AD.apply('items', out); } catch (e) {}
       ST.suspend = false;
-      resetBase();
-      saveMeta();
     }
+    /* 새로 알게 된 별칭으로 장바구니 줄을 다시 잇는다 */
+    var c2 = collect(), al = aliasCarts(c2.carts);
+    if (al.changed) {
+      ST.suspend = true;
+      try { AD.apply('carts', al.carts); } catch (e) {}
+      ST.suspend = false;
+      changed += al.changed;
+    }
+    resetBase();
+    saveMeta();
     return changed;
   }
 

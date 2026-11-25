@@ -2286,7 +2286,9 @@ function syncSelfHeal(u, pw, force){
       var k = keyOf(d);
       if(seen[k]) return;
       out.push({
-        id: uid('it'), name: d.name, spec: d.spec || '', barcode: d.barcode || '',
+        /* 기기마다 같은 품목이 되도록 id 를 품명·규격·바코드로 정한다 (기기 간 장바구니가 서로 이어지게) */
+        id: 'd' + sha256hex('kditem|' + k).slice(0, 16),
+        name: d.name, spec: d.spec || '', barcode: d.barcode || '',
         cat: d.cat || '기타', unit: d.unit || '봉', sample: false, promo: !!d.promo
       });
       seen[k] = 1;
