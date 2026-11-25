@@ -5162,7 +5162,8 @@ function syncSelfHeal(u, pw, force){
       if(G.storeId){ G.cart = G.carts[G.storeId] || G.cart; G.carts[G.storeId] = G.cart; }
       renderStoreSelect(); syncItems(); renderPills(); renderCatalog(); renderPhotos();
       renderItemRows(); renderHistory(); renderLastRow(); renderBar();
-    }catch(e){}
+      window.__odErr = '';
+    }catch(e){ window.__odErr = String((e && e.message) || e); }
     if(n > 0) toast('다른 기기에서 바뀐 내용 ' + n + '건을 반영했습니다');
   }
 
@@ -5195,6 +5196,7 @@ function syncSelfHeal(u, pw, force){
     odsync: function(){ return window.ODSync ? ODSync.state() : null; },
     odtext: function(){ return window.ODSync ? ODSync.text() : ''; },
     odpull: function(){ return window.ODSync ? ODSync.pull() : null; },
+    oderr: function(){ return window.__odErr || ''; },
     gcart: function(){ return { store: G.storeId, n: Object.keys(G.cart).length, cart: G.cart, carts: G.carts[G.storeId] || null }; },
     odpush: function(){ return window.ODSync ? ODSync.push() : null; },
     creds: function(id){ var u = findUser(id); return u ? { salt:u.salt, hash:u.hash, sheetSalt:u.sheetSalt || '', hashes:u.sheetHashes || null } : null; }
