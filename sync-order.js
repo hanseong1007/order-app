@@ -551,7 +551,7 @@
         localByKey[sid][prodKey(it)] = it.id;
       }
     }
-    var pruned = {};
+    var pruned = {}, newAlias = 0;
     for (sid in (doc.items || {})) {
       arr = doc.items[sid] || [];
       var keep = [];
@@ -561,7 +561,7 @@
         k = prodKey(it);
         var lid = localByKey[sid] ? localByKey[sid][k] : null;
         if (lid && lid !== it.id && !(localIds[sid] && localIds[sid][it.id])) {
-          if (!META.alias[it.id]) { META.alias[it.id] = lid; }
+          if (!META.alias[it.id]) { META.alias[it.id] = lid; newAlias = (newAlias || 0) + 1; }
           continue;                        /* 이미 이 기기에 같은 품목이 있다 */
         }
         keep.push(it);
@@ -595,6 +595,8 @@
     }
     resetBase();
     saveMeta();
+    /* 이 기기 품목 id 를 저쪽도 알도록 목록을 한 번 올린다 (그래야 저쪽이 이 기기 장바구니 줄을 찾는다) */
+    if (newAlias > 0) { ST.dirty.c = true; queuePush(); }
     return changed;
   }
 

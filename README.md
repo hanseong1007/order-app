@@ -1,12 +1,13 @@
 # (주)경덕농수산 거래처 발주 화면
 
-거래처에 납품할 품목을 **휴대폰에서 바로 골라 담고**, 발주서를 카톡·문자로 보내거나 엑셀(CSV)로 저장하는 단일 파일 웹앱입니다.
+거래처에 납품할 품목을 **휴대폰에서 바로 골라 담고**, 발주서를 카톡·문자로 보내거나 엑셀(CSV)로 저장하는 웹앱입니다.
 **직원별 로그인**(관리자 + 직원 계정), **바코드를 연속으로 찍어 담기**(끊김 없이 계속 스캔), **담긴 품목만 모아 수량 직접 입력**, **거래처별 품목 관리**, **엑셀 붙여넣기 대량 등록**, **거래처별 지난 발주 수량 한 번에 불러오기**, **같은(공통) 바코드 후보 1탭 선택**까지 됩니다.
-설치할 것도, 서버도 없습니다. `index.html` 파일 하나만 있으면 됩니다. **품목 828개는 암호화되어 들어 있어** 로그인해야 볼 수 있습니다(아래 2-4).
+설치할 것도, 서버도 없습니다. `index.html` + `sync-order.js` 두 파일이면 됩니다(인터넷 주소로 올려 쓰면 그대로 열립니다). **품목 828개는 암호화되어 들어 있어** 로그인해야 볼 수 있습니다(아래 2-4).
 
-- 파일: `index.html` (약 277KB, 외부 라이브러리 없이 동작 · 품목 828개가 암호문으로 들어 있음)
+- 파일: `index.html`(약 310KB · 품목 828개가 암호문으로 들어 있음) + `sync-order.js`(약 30KB · 기기 간 동기화, 아래 2-3). 외부 라이브러리 없이 동작합니다.
+  - 파일로 받아 `file://` 로 열 때도 두 파일을 **같은 폴더**에 두면 됩니다(동기화는 https 주소에서만 동작).
 - **관리자 계정은 이 기기에 하나만** 있습니다. 처음 관리자 비밀번호는 **화면에 나오지 않습니다** — 초기 암호는 관리자에게만 따로 전달되고, 로그인 뒤 `내 계정`에서 바로 바꿔 쓰세요(2번 참고).
-- 화면 예시는 **예시용 가짜 품목**으로 찍었습니다(실제 품명·바코드는 나오지 않습니다): `screenshot-1-catalog.png` · `screenshot-2-photo.png` · `screenshot-3-summary.png` · `screenshot-4-barcode.png` · `screenshot-5-items-bulk.png` · `screenshot-6-ordered-qty.png`(담긴 품목만+수량 입력) · `screenshot-7-scan-live.png`(연속 스캔) · `screenshot-8-photo-next.png`(사진으로 찍을 때 · 다음 바코드 찍기) · `screenshot-9-login.png`(로그인 화면) · `screenshot-10-admin-users.png`(관리자 · 사용자 관리) · `screenshot-11-last-order.png`(거래처별 지난 발주 불러오기 · 지난번 N개) · `screenshot-12-barcode-pick.png`(같은 바코드 후보 · 1탭 선택) · `screenshot-13-share-order.png`(찍은 차례대로 정렬된 발주서) · `screenshot-14-share-text-barcode.png`(공유 글의 `품목 (규격)_바코드 7·2·4`)
+- 화면 예시는 **예시용 가짜 품목**으로 찍었습니다(실제 품명·바코드는 나오지 않습니다): `screenshot-1-catalog.png` · `screenshot-2-photo.png` · `screenshot-3-summary.png` · `screenshot-4-barcode.png` · `screenshot-5-items-bulk.png` · `screenshot-6-ordered-qty.png`(담긴 품목만+수량 입력) · `screenshot-7-scan-live.png`(연속 스캔) · `screenshot-8-photo-next.png`(사진으로 찍을 때 · 다음 바코드 찍기) · `screenshot-9-login.png`(로그인 화면) · `screenshot-10-admin-users.png`(관리자 · 사용자 관리) · `screenshot-11-last-order.png`(거래처별 지난 발주 불러오기 · 지난번 N개) · `screenshot-12-barcode-pick.png`(같은 바코드 후보 · 1탭 선택) · `screenshot-13-share-order.png`(찍은 차례대로 정렬된 발주서) · `screenshot-14-share-text-barcode.png`(공유 글의 `품목 (규격)_바코드 7·2·4`) · `screenshot-15-sync-pc.png`·`screenshot-16-sync-mobile.png`·`screenshot-17-sync-pc-updated.png`(기기 간 동기화 — PC에서 담은 수량이 휴대폰에 따라오고, 휴대폰에서 바꾼 것이 PC에 반영됨)
 - 기준 화면: 안드로이드 크롬, 390×844 (320·360px 폭 기기까지 확인, 아이폰은 같은 화면으로 보입니다)
 
 ---
