@@ -176,13 +176,22 @@
 
   function api(payload, timeoutMs) {
     if (!ST.url) return Promise.reject(new Error('no_url'));
+    var body = {}, k;
+    for (k in payload) { body[k] = payload[k]; }
+    try {
+      if (window.KDWSEC) {
+        var tk = KDWSEC.token();
+        if (tk) body.token = tk;
+        body.ua = (navigator.userAgent || '').slice(0, 90);
+      }
+    } catch (e) {}
     var ms = timeoutMs || 30000;
     var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var t = setTimeout(function () { if (ctl) ctl.abort(); }, ms);
     return fetch(ST.url, {
       method: 'POST', cache: 'no-store', redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
       signal: ctl ? ctl.signal : undefined
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
