@@ -1803,7 +1803,10 @@ function syncRecordOf(u){
 }
 function syncLocalDoc(){
   var d = usersDoc(), users = [];
-  d.users.forEach(function(u){ if(u && u.id) users.push(syncRecordOf(u)); });
+  /* 지운 계정(옛 admin 등)은 시트로 다시 올리지 않는다 */
+  var gone = {};
+  deletedIdsOf(d).forEach(function(x){ var n = normId(x); if(n) gone[n] = 1; });
+  d.users.forEach(function(u){ if(u && u.id && !gone[u.id]) users.push(syncRecordOf(u)); });
   var kcat = (CAT.ok && CAT.key) ? CAT.key : (LS.get(SYNC_KCAT_KEY, '') || '');
   return { v:1, updatedAt:'', kcat:kcat, users:users, deletedIds:deletedIdsOf(d) };
 }
